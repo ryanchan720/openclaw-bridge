@@ -11,12 +11,39 @@ CLI 桥接器，让 OpenClaw 能够通过 MCP 协议操作 Revit。
 | [copilot-for-revit](https://github.com/ryanchan720/copilot-for-revit) | 主框架 | AI 驱动 Revit 的核心平台，支持 MCP 协议。负责插件加载、命令调度、与 AI 对话工具通信。**需先安装此框架才能使用插件。** |
 | [copilot-addins-for-revit](https://github.com/ryanchan720/copilot-addins-for-revit) | 开发模板 | AI 友好的插件开发脚手架。提供项目模板、开发规范、最佳实践。适合想要开发自定义命令的用户。 |
 | [general-copilot-addins-for-revit](https://github.com/ryanchan720/general-copilot-addins-for-revit) | 通用插件 | 提供现成的常用命令，覆盖元素查询、参数修改、标注创建、视图管理等高频场景。开箱即用。 |
-| **本仓库** | OpenClaw 桥接器 | 连接 OpenClaw 和 Revit Copilot 的 CLI 工具，支持健康检查、工具发现、命令执行。 |
+| **本仓库** | OpenClaw 桥接器 | 连接 OpenClaw 和 Copilot for Revit 的 CLI 工具，支持健康检查、工具发现、命令执行。 |
 
 **快速选择指南**：
 - 想用 AI 控制 Revit → 安装主框架 + 通用插件
 - 想开发自己的命令 → 使用开发模板
-- 想在飞书/Telegram 等聊天工具里操作 Revit → 安装本桥接器 + 配置 OpenClaw
+- 想直接用现成功能 → 安装通用插件
+- 想在飞书/Telegram 等聊天工具里操作 Revit → 安装 Copilot + 通用插件 + 本桥接器 + 配置 OpenClaw
+
+---
+
+## 物理架构
+
+```
+┌────────────────────────────────────┐         ┌────────────────────────────────────┐
+│         Linux 主机                  │         │         Windows 主机                │
+│                                    │         │                                    │
+│  ┌─────────────┐  ┌──────────────┐ │         │  ┌──────────────┐  ┌────────────┐  │
+│  │   飞书/聊天  │  │   OpenClaw   │ │         │  │    Revit     │  │  Copilot   │  │
+│  │             │─►│             │ │         │  │              │  │  for Revit │  │
+│  └─────────────┘  └──────┬───────┘ │         │  └──────────────┘  └─────┬──────┘  │
+│                          │         │         │                          │         │
+│                   ┌──────▼───────┐ │  HTTP   │                   ┌──────▼──────┐  │
+│                   │   本桥接器    │ │◄───────┼───────────────────►│  MCP 服务   │  │
+│                   │openclaw-bridge│ │  18181 │                   │  (端口18181)│  │
+│                   └──────────────┘ │         │                   └────────────┘  │
+│                                    │         │                                    │
+└────────────────────────────────────┘         └────────────────────────────────────┘
+```
+
+**要点**：
+- OpenClaw 和本桥接器运行在 **Linux 主机**
+- Revit 和 Copilot for Revit 运行在 **Windows 主机**
+- 两台主机需要网络互通（Linux 能访问 Windows 的 18181 端口）
 
 ---
 
@@ -26,27 +53,27 @@ CLI 桥接器，让 OpenClaw 能够通过 MCP 协议操作 Revit。
 
 ```
 你（在飞书）：Revit 在线吗？
-Jacob：在线，版本 1.0.0，协议 2024-11-05
+OpenClaw：在线，版本 1.0.0，协议 2024-11-05
 
 你：帮我看看当前项目有哪些门
-Jacob：找到 15 种门类型...
+OpenClaw：找到 15 种门类型...
 ```
-
-## 架构
-
-```
-┌─────────────┐      ┌──────────────┐      ┌─────────────────┐      ┌───────────────┐
-│   飞书聊天   │ ───► │   OpenClaw   │ ───► │  openclaw-bridge │ ───► │  Revit MCP    │
-│  (Ryan)     │      │   (Jacob)    │      │     (CLI)       │      │  (Windows)    │
-└─────────────┘      └──────────────┘      └─────────────────┘      └───────────────┘
-```
-
-桥接器负责：
-1. 连接远程 Revit MCP 服务（HTTP+SSE）
-2. 提供 CLI 命令供 OpenClaw 调用
-3. 处理协议转换和错误
 
 ## 安装
+
+### 前置条件
+
+1. **Windows 端**已安装并配置好：
+   - Revit 2019-2024
+   - [Copilot for Revit](https://github.com/ryanchan720/copilot-for-revit)
+   - [通用插件](https://github.com/ryanchan720/general-copilot-addins-for-revit)（可选）
+   - MCP 服务已配置为远程访问（详见[配置 MCP 远程访问](#配置-mcp-远程访问)）
+
+2. **Linux 端**已安装：
+   - Python 3.10+
+   - [uv](https://docs.astral.sh/uv/)
+
+### 安装步骤
 
 ```bash
 git clone https://github.com/ryanchan720/openclaw-bridge.git
@@ -54,13 +81,19 @@ cd openclaw-bridge
 uv sync
 ```
 
+---
+
 ## 使用
 
 ### 配置 MCP 服务器地址
 
 ```bash
-export REVIT_MCP_URL="http://192.168.x.x:18181"
+export REVIT_MCP_URL="http://<WINDOWS_IP>:18181"
 ```
+
+将 `<WINDOWS_IP>` 替换为运行 Revit 的 Windows 主机 IP 地址。
+
+> **注意**：Copilot for Revit 默认只监听 `localhost`，需要额外配置才能远程访问。详见下方"配置 MCP 远程访问"章节。
 
 ### 检查 Revit 状态
 
@@ -93,6 +126,26 @@ uv run python -m openclaw_bridge.cli tools list
 uv run python -m openclaw_bridge.cli tools call GetEnvInfoCommand --args '{}'
 ```
 
+---
+
+## 配置 MCP 远程访问
+
+Copilot for Revit 默认只监听 `localhost`，要让 Linux 主机能访问，需要：
+
+1. **修改 Copilot 代码**：将 MCP 监听前缀改为 `http://+:18181/`
+2. **配置 Windows URL ACL**：
+   ```powershell
+   netsh http add urlacl url=http://+:18181/ user=<Windows用户名>
+   ```
+3. **放行防火墙**：
+   ```powershell
+   netsh advfirewall firewall add rule name="Revit MCP 18181" dir=in action=allow protocol=TCP localport=18181
+   ```
+
+详细说明请参考 [Copilot for Revit 的 README - 常见问题](https://github.com/ryanchan720/copilot-for-revit#常见问题)。
+
+---
+
 ## 集成到 OpenClaw
 
 在 OpenClaw 的 workspace 中创建 skill：
@@ -107,6 +160,8 @@ uv run python -m openclaw_bridge.cli tools call GetEnvInfoCommand --args '{}'
 
 详细配置参考 `revit-copilot` skill 的文档。
 
+---
+
 ## 错误处理
 
 所有错误返回 JSON 格式：
@@ -120,14 +175,18 @@ uv run python -m openclaw_bridge.cli tools call GetEnvInfoCommand --args '{}'
 ```
 
 常见错误：
-- **Connection failure**: Revit 服务未启动或网络不通
+- **Connection failure**: Copilot 服务未启动或网络不通
 - **Revit is not ready**: Revit 未打开项目文件
 - **Tool not found**: 工具名称错误或插件未安装
+
+---
 
 ## 选项
 
 - `--url, -u`: MCP 服务器地址（默认：`http://localhost:18181`）
 - `--timeout, -t`: 请求超时秒数（默认：30）
+
+---
 
 ## 开发
 
@@ -138,6 +197,8 @@ uv sync --dev
 # 运行测试
 uv run pytest
 ```
+
+---
 
 ## License
 
