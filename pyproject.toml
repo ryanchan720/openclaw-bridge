@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "revit-mcp-bridge"
+name = "openclaw-bridge"
 version = "0.1.0"
-description = "CLI bridge to connect to remote Revit MCP server over HTTP+SSE"
+description = "CLI bridge to connect OpenClaw to Revit Copilot over MCP"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.0",
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-revit-mcp = "revit_mcp_bridge.cli:main"
+revit-mcp = "openclaw_bridge.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
