@@ -36,7 +36,8 @@ class MCPClient:
         self._sse_response: httpx.Response | None = None
         self._sse_task: asyncio.Task | None = None
         self._pending_requests: dict[int, asyncio.Queue] = {}
-        self._sse_connected = asyncio.Event()
+        self._endpoint_received = asyncio.Event()
+        self._connect_error: MCPError | None = None
         self._request_counter = 0
         self._closed = False
 
@@ -47,6 +48,8 @@ class MCPClient:
 
         self._client = httpx.AsyncClient(timeout=self.timeout)
         self._closed = False
+        self._endpoint_received.clear()
+        self._connect_error = None
 
         # Open persistent SSE connection
         sse_url = f"{self.base_url}/sse"
@@ -61,31 +64,24 @@ class MCPClient:
                     f"Failed to connect to MCP server: HTTP {self._sse_response.status_code}"
                 )
 
-            # Wait for the endpoint event to get session info
-            event_type = None
-            async for line in self._sse_response.aiter_lines():
-                line = line.strip()
+            # Start background task to read ALL SSE events (including endpoint)
+            self._sse_task = asyncio.create_task(self._read_sse_loop())
 
-                if line.startswith("event:"):
-                    event_type = line[6:].strip()
-                elif line.startswith("data:"):
-                    data = line[5:].strip()
+            # Wait for the endpoint event (or error)
+            try:
+                await asyncio.wait_for(
+                    self._endpoint_received.wait(),
+                    timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                raise MCPError("Timeout waiting for endpoint event from MCP server")
 
-                    if event_type == "endpoint" and data:
-                        # Parse the message endpoint URL
-                        self.message_endpoint = data
-                        if "?" in data:
-                            # Extract sessionId from query params
-                            parsed = urlparse(data)
-                            params = parse_qs(parsed.query)
-                            if "sessionId" in params:
-                                self.session_id = params["sessionId"][0]
+            # Check if there was an error during connection
+            if self._connect_error:
+                raise self._connect_error
 
-                        # Start background task to read SSE events
-                        self._sse_task = asyncio.create_task(self._read_sse_loop())
-                        return
-
-            raise MCPError("Did not receive endpoint event from MCP server")
+            if not self.message_endpoint:
+                raise MCPError("Did not receive endpoint event from MCP server")
 
         except httpx.ConnectError as e:
             await self._cleanup()
@@ -98,7 +94,7 @@ class MCPClient:
             raise
 
     async def _read_sse_loop(self) -> None:
-        """Background task that continuously reads SSE events."""
+        """Background task that continuously reads SSE events from start."""
         event_type = None
 
         try:
@@ -118,6 +114,17 @@ class MCPClient:
                 elif line.startswith("data:"):
                     data = line[5:].strip()
 
+                    # Handle endpoint event (connection setup)
+                    if event_type == "endpoint" and data:
+                        self.message_endpoint = data
+                        if "?" in data:
+                            parsed = urlparse(data)
+                            params = parse_qs(parsed.query)
+                            if "sessionId" in params:
+                                self.session_id = params["sessionId"][0]
+                        self._endpoint_received.set()
+                        continue
+
                     # Ignore heartbeat events
                     if event_type == "heartbeat":
                         continue
@@ -135,11 +142,17 @@ class MCPClient:
                             queue = self._pending_requests[request_id]
                             await queue.put(response_data)
 
-        except Exception:
+        except Exception as e:
             # SSE connection closed or errored
-            pass
+            import sys
+            print(f"DEBUG: SSE loop exception: {type(e).__name__}: {e}", file=sys.stderr)
+            if not self._endpoint_received.is_set():
+                self._connect_error = MCPError(f"SSE connection error: {e}")
+                self._endpoint_received.set()
         finally:
             # Signal to any waiting requests that the connection is dead
+            import sys
+            print("DEBUG: SSE loop ended, signaling pending requests", file=sys.stderr)
             for queue in self._pending_requests.values():
                 await queue.put(None)
 
