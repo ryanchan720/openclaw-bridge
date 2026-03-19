@@ -12,6 +12,7 @@ CLI 桥接器，让 OpenClaw 能够通过 MCP 协议操作 Revit。
 | [copilot-addins-for-revit](https://github.com/ryanchan720/copilot-addins-for-revit) | 开发模板 | AI 友好的插件开发脚手架。提供项目模板、开发规范、最佳实践。适合想要开发自定义命令的用户。 |
 | [general-copilot-addins-for-revit](https://github.com/ryanchan720/general-copilot-addins-for-revit) | 通用插件 | 提供现成的常用命令，覆盖元素查询、参数修改、标注创建、视图管理等高频场景。开箱即用。 |
 | **本仓库** | OpenClaw 桥接器 | 连接 OpenClaw 和 Copilot for Revit 的 CLI 工具，支持健康检查、工具发现、命令执行。 |
+| [copilot-for-revit-skill](https://github.com/ryanchan720/copilot-for-revit-skill) | OpenClaw Skill | OpenClaw skill 包，配合本桥接器使用。安装后可在聊天工具中直接操作 Revit。 |
 
 **快速选择指南**：
 - 想用 AI 控制 Revit → 安装主框架 + 通用插件
